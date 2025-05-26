@@ -244,7 +244,7 @@ class CursedMenu(object):
         # gets the user's input
         user_in = self.screen.getch() # Gets user input
         if user_in == -1: # Input comes from pipe/file and is closed
-            raise IOError
+            raise OSError("Failed to read from input")
         ## DEBUG KEYS - enable these lines to see curses key codes
         # self.screen.addstr(2, 2, str(user_in), curses.A_NORMAL)
         # self.screen.refresh()
@@ -363,7 +363,7 @@ class CursedMenu(object):
             self.screen_lock.release()
             c = self.screen.getch()
             if c == -1: # Input comes from pipe/file and is closed
-                raise IOError
+                raise OSError("Failed to read from input")
             self.infotoggle = 0
 
             # Quit
@@ -387,7 +387,7 @@ class CursedMenu(object):
             elif c == ord("s"):
                 c = self.screen.getch()
                 if c == -1: # Input comes from pipe/file and is closed
-                    raise IOError
+                    raise OSError("Failed to read from input")
                 column = -1
                 if c < 255 and chr(c) in sort_keys:
                     column = sort_keys.index(chr(c))
@@ -616,7 +616,7 @@ class CursedMenu(object):
         self.draw_info_text(harvest_text)
         user_in = self.screen.getch() # Gets user input
         if user_in == -1: # Input comes from pipe/file and is closed
-            raise IOError
+            raise OSError("Failed to read from input")
 
         if user_in in [ord('Y'), ord('y'), 10]:
             self.plant.start_over()
@@ -678,7 +678,7 @@ class CursedMenu(object):
         while user_input != 10:
             user_input = self.screen.getch()
             if user_input == -1: # Input comes from pipe/file and is closed
-                raise IOError
+                raise OSError("Failed to read from input")
             self.screen_lock.acquire()
             # osx and unix backspace chars...
             if user_input == 127 or user_input == 263:
