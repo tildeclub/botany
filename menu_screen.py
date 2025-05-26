@@ -1,17 +1,24 @@
 import curses
-import math
-import os
-import traceback
-import threading
-import time
-import random
+import datetime
 import getpass
 import json
+import math
+import os
+import random
+import re
 import sqlite3
 import string
-import re
+import threading
+import time
+import traceback
+from typing import TYPE_CHECKING
+
 import completer
-import datetime
+from plant import Plant
+
+if TYPE_CHECKING:
+    from botany import DataManager
+
 
 class CursedMenu(object):
     #TODO: name your plant
