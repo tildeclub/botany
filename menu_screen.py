@@ -10,7 +10,6 @@ import sqlite3
 import string
 import threading
 import time
-import traceback
 from typing import TYPE_CHECKING
 
 import completer
@@ -21,7 +20,7 @@ if TYPE_CHECKING:
 
 
 class CursedMenu(object):
-    #TODO: name your plant
+    # TODO: name your plant
     '''A class which abstracts the horrors of building a curses-based menu system'''
     def __init__(
         self,
@@ -108,36 +107,21 @@ class CursedMenu(object):
         try:
             self.draw_default()
             self.screen.refresh()
-        except Exception as exception:
+        except curses.error as exception:
             # Makes sure data is saved in event of a crash due to window resizing
             self.screen.clear()
             self.screen.addstr(0, 0, "Enlarge terminal!", curses.A_NORMAL)
             self.screen.refresh()
-            self.__exit__()
-            traceback.print_exc()
-        self.screen_lock.release()
+        finally:
+            self.screen_lock.release()
 
     def draw_menu(self):
         # Actually draws the menu and handles branching
         request = ""
-        try:
-            while request != "exit":
-                self.draw()
-                request = self.get_user_input()
-                self.handle_request(request)
-            self.__exit__()
-
-        # Also calls __exit__, but adds traceback after
-        except Exception as exception:
-            self.screen.clear()
-            self.screen.addstr(0, 0, "Enlarge terminal!", curses.A_NORMAL)
-            self.screen.refresh()
-            self.__exit__()
-            #traceback.print_exc()
-        except IOError as exception:
-            self.screen.clear()
-            self.screen.refresh()
-            self.__exit__()
+        while request != "exit":
+            self.draw()
+            request = self.get_user_input()
+            self.handle_request(request)
 
     def ascii_render(self, filename, ypos, xpos):
         # Prints ASCII art from file at given coordinates
@@ -258,10 +242,7 @@ class CursedMenu(object):
 
     def get_user_input(self):
         # gets the user's input
-        try:
-            user_in = self.screen.getch() # Gets user input
-        except Exception as e:
-            self.__exit__()
+        user_in = self.screen.getch() # Gets user input
         if user_in == -1: # Input comes from pipe/file and is closed
             raise IOError
         ## DEBUG KEYS - enable these lines to see curses key codes
@@ -339,7 +320,7 @@ class CursedMenu(object):
             entry_txt = self.format_garden_entry(entry)
             try:
                 result = bool(re.search(pattern, entry_txt))
-            except Exception as e:
+            except re.PatternError:
                 # In case of invalid regex, don't match anything
                 result = False
             return result
@@ -633,10 +614,7 @@ class CursedMenu(object):
                 harvest_text += "Your next plant will grow at a speed of: {:.1f}x\n".format(1 + (0.2 * self.plant.generation))
         harvest_text += "If you harvest your plant you'll start over from a seed.\nContinue? (Y/n)"
         self.draw_info_text(harvest_text)
-        try:
-            user_in = self.screen.getch() # Gets user input
-        except Exception as e:
-            self.__exit__()
+        user_in = self.screen.getch() # Gets user input
         if user_in == -1: # Input comes from pipe/file and is closed
             raise IOError
 
@@ -814,48 +792,21 @@ class CursedMenu(object):
 
     def handle_request(self, request):
         # Menu options call functions here
-        if request == None: return
-        if request == "harvest":
-            self.harvest_confirmation()
-        if request == "water":
-            self.plant.water()
-        if request == "look":
-            try:
+        match request:
+            case None:
+                return
+            case "harvest":
+                self.harvest_confirmation()
+            case "water":
+                self.plant.water()
+            case "look":
                 self.draw_plant_description(self.plant)
-            except Exception as exception:
-                self.screen.refresh()
-                # traceback.print_exc()
-        if request == "instructions":
-            try:
+            case "instructions":
                 self.draw_instructions()
-            except Exception as exception:
-                self.screen.refresh()
-                # traceback.print_exc()
-        if request == "visit":
-            try:
+            case "visit":
                 self.visit_handler()
-            except Exception as exception:
-                self.screen.refresh()
-                # traceback.print_exc()
-        if request == "garden":
-            try:
+            case "garden":
                 self.draw_garden()
-            except Exception as exception:
-                self.screen.refresh()
-                # traceback.print_exc()
-
-    def __exit__(self):
-        self.exit = True
-        cleanup()
-
-def cleanup():
-    try:
-        curses.curs_set(2)
-    except curses.error:
-        # cursor not supported; just ignore
-        pass
-    curses.endwin()
-    os.system('clear')
 
 
 def menu(stdscrn: curses.window, *, this_plant, this_data):
