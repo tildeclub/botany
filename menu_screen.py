@@ -23,14 +23,15 @@ if TYPE_CHECKING:
 class CursedMenu(object):
     #TODO: name your plant
     '''A class which abstracts the horrors of building a curses-based menu system'''
-    def __init__(self, this_plant, this_data):
+    def __init__(
+        self,
+        stdscr: curses.window,
+        this_plant: Plant,
+        this_data: "DataManager",
+    ):
         '''Initialization'''
         self.initialized = False
-        self.screen = curses.initscr()
-        curses.noecho()
-        curses.raw()
-        if curses.has_colors():
-            curses.start_color()
+        self.screen = stdscr
         try:
             curses.curs_set(0)
         except curses.error:
@@ -61,7 +62,6 @@ class CursedMenu(object):
         # Recursive lock to prevent both threads from drawing at the same time
         self.screen_lock = threading.RLock()
         self.screen.clear()
-        self.show(["water","look","garden","visit", "instructions"], title=' botany ', subtitle='options')
 
     def define_colors(self):
         # TODO: implement colors
@@ -857,3 +857,15 @@ def cleanup():
     curses.endwin()
     os.system('clear')
 
+
+def menu(stdscrn: curses.window, *, this_plant, this_data):
+    menu = CursedMenu(stdscrn, this_plant=this_plant, this_data=this_data)
+    menu.show(
+        ["water", "look", "garden", "visit", "instructions"],
+        title=" botany ",
+        subtitle="options",
+    )
+
+
+def main(this_plant: Plant, this_data: "DataManager"):
+    return curses.wrapper(menu, this_plant=this_plant, this_data=this_data)
