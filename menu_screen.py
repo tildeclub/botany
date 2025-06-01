@@ -1,29 +1,36 @@
 import curses
-import math
-import os
-import traceback
-import threading
-import time
-import random
+import datetime
 import getpass
 import json
+import math
+import os
+import random
+import re
 import sqlite3
 import string
-import re
+import threading
+import time
+from typing import TYPE_CHECKING
+
 import completer
-import datetime
+from plant import Plant
+
+if TYPE_CHECKING:
+    from botany import DataManager
+
 
 class CursedMenu(object):
-    #TODO: name your plant
+    # TODO: name your plant
     '''A class which abstracts the horrors of building a curses-based menu system'''
-    def __init__(self, this_plant, this_data):
+    def __init__(
+        self,
+        stdscr: curses.window,
+        this_plant: Plant,
+        this_data: "DataManager",
+    ):
         '''Initialization'''
         self.initialized = False
-        self.screen = curses.initscr()
-        curses.noecho()
-        curses.raw()
-        if curses.has_colors():
-            curses.start_color()
+        self.screen = stdscr
         try:
             curses.curs_set(0)
         except curses.error:
@@ -54,7 +61,6 @@ class CursedMenu(object):
         # Recursive lock to prevent both threads from drawing at the same time
         self.screen_lock = threading.RLock()
         self.screen.clear()
-        self.show(["water","look","garden","visit", "instructions"], title=' botany ', subtitle='options')
 
     def define_colors(self):
         # TODO: implement colors
@@ -96,41 +102,24 @@ class CursedMenu(object):
     def draw(self):
         # Draw the menu and lines
         self.maxy, self.maxx = self.screen.getmaxyx()
-        self.screen_lock.acquire()
-        self.screen.refresh()
-        try:
-            self.draw_default()
+        with self.screen_lock:
             self.screen.refresh()
-        except Exception as exception:
-            # Makes sure data is saved in event of a crash due to window resizing
-            self.screen.clear()
-            self.screen.addstr(0, 0, "Enlarge terminal!", curses.A_NORMAL)
-            self.screen.refresh()
-            self.__exit__()
-            traceback.print_exc()
-        self.screen_lock.release()
+            try:
+                self.draw_default()
+                self.screen.refresh()
+            except curses.error as exception:
+                # Makes sure data is saved in event of a crash due to window resizing
+                self.screen.clear()
+                self.screen.addstr(0, 0, "Enlarge terminal!", curses.A_NORMAL)
+                self.screen.refresh()
 
     def draw_menu(self):
         # Actually draws the menu and handles branching
         request = ""
-        try:
-            while request != "exit":
-                self.draw()
-                request = self.get_user_input()
-                self.handle_request(request)
-            self.__exit__()
-
-        # Also calls __exit__, but adds traceback after
-        except Exception as exception:
-            self.screen.clear()
-            self.screen.addstr(0, 0, "Enlarge terminal!", curses.A_NORMAL)
-            self.screen.refresh()
-            self.__exit__()
-            #traceback.print_exc()
-        except IOError as exception:
-            self.screen.clear()
-            self.screen.refresh()
-            self.__exit__()
+        while request != "exit":
+            self.draw()
+            request = self.get_user_input()
+            self.handle_request(request)
 
     def ascii_render(self, filename, ypos, xpos):
         # Prints ASCII art from file at given coordinates
@@ -139,11 +128,9 @@ class CursedMenu(object):
         this_file = open(this_filename,"r")
         this_string = this_file.readlines()
         this_file.close()
-        self.screen_lock.acquire()
-        for y, line in enumerate(this_string, 2):
-            self.screen.addstr(ypos+y, xpos, line, curses.A_NORMAL)
-        # self.screen.refresh()
-        self.screen_lock.release()
+        with self.screen_lock:
+            for y, line in enumerate(this_string, 2):
+                self.screen.addstr(ypos+y, xpos, line, curses.A_NORMAL)
 
     def draw_plant_ascii(self, this_plant):
         ypos = 0
@@ -193,42 +180,41 @@ class CursedMenu(object):
     def draw_default(self):
         # draws default menu
         clear_bar = " " * (int(self.maxx*2/3))
-        self.screen_lock.acquire()
-        self.screen.addstr(1, 2, self.title, curses.A_STANDOUT) # Title for this menu
-        self.screen.addstr(3, 2, self.subtitle, curses.A_BOLD) #Subtitle for this menu
-        # clear menu on screen
-        for index in range(len(self.options)+1):
-            self.screen.addstr(4+index, 4, clear_bar, curses.A_NORMAL)
-        # display all the menu items, showing the 'pos' item highlighted
-        for index in range(len(self.options)):
-            textstyle = self.normal
-            if index == self.selected:
-                textstyle = self.highlighted
-            self.screen.addstr(4+index ,4, clear_bar, curses.A_NORMAL)
-            self.screen.addstr(4+index ,4, "%d - %s" % (index+1, self.options[index]), textstyle)
+        with self.screen_lock:
+            self.screen.addstr(1, 2, self.title, curses.A_STANDOUT) # Title for this menu
+            self.screen.addstr(3, 2, self.subtitle, curses.A_BOLD) #Subtitle for this menu
+            # clear menu on screen
+            for index in range(len(self.options)+1):
+                self.screen.addstr(4+index, 4, clear_bar, curses.A_NORMAL)
+            # display all the menu items, showing the 'pos' item highlighted
+            for index in range(len(self.options)):
+                textstyle = self.normal
+                if index == self.selected:
+                    textstyle = self.highlighted
+                self.screen.addstr(4+index ,4, clear_bar, curses.A_NORMAL)
+                self.screen.addstr(4+index ,4, "%d - %s" % (index+1, self.options[index]), textstyle)
 
-        self.screen.addstr(12, 2, clear_bar, curses.A_NORMAL)
-        self.screen.addstr(13, 2, clear_bar, curses.A_NORMAL)
-        self.screen.addstr(12, 2, "plant: ", curses.A_DIM)
-        self.screen.addstr(12, 9, self.plant_string, curses.A_NORMAL)
-        self.screen.addstr(13, 2, "score: ", curses.A_DIM)
-        self.screen.addstr(13, 9, self.plant_ticks, curses.A_NORMAL)
+            self.screen.addstr(12, 2, clear_bar, curses.A_NORMAL)
+            self.screen.addstr(13, 2, clear_bar, curses.A_NORMAL)
+            self.screen.addstr(12, 2, "plant: ", curses.A_DIM)
+            self.screen.addstr(12, 9, self.plant_string, curses.A_NORMAL)
+            self.screen.addstr(13, 2, "score: ", curses.A_DIM)
+            self.screen.addstr(13, 9, self.plant_ticks, curses.A_NORMAL)
 
-        # display fancy water gauge
-        if not self.plant.dead:
-            water_gauge_str = self.water_gauge()
-            self.screen.addstr(4,14, water_gauge_str, curses.A_NORMAL)
-        else:
-            self.screen.addstr(4,13, clear_bar, curses.A_NORMAL)
-            self.screen.addstr(4,14, "(   RIP   )", curses.A_NORMAL)
+            # display fancy water gauge
+            if not self.plant.dead:
+                water_gauge_str = self.water_gauge()
+                self.screen.addstr(4,14, water_gauge_str, curses.A_NORMAL)
+            else:
+                self.screen.addstr(4,13, clear_bar, curses.A_NORMAL)
+                self.screen.addstr(4,14, "(   RIP   )", curses.A_NORMAL)
 
-        # draw cute ascii from files
-        if self.visited_plant:
-            # Needed to prevent drawing over a visited plant
-            self.draw_plant_ascii(self.visited_plant)
-        else:
-            self.draw_plant_ascii(self.plant)
-        self.screen_lock.release()
+            # draw cute ascii from files
+            if self.visited_plant:
+                # Needed to prevent drawing over a visited plant
+                self.draw_plant_ascii(self.visited_plant)
+            else:
+                self.draw_plant_ascii(self.plant)
 
     def water_gauge(self):
         # build nice looking water gauge
@@ -251,12 +237,9 @@ class CursedMenu(object):
 
     def get_user_input(self):
         # gets the user's input
-        try:
-            user_in = self.screen.getch() # Gets user input
-        except Exception as e:
-            self.__exit__()
+        user_in = self.screen.getch() # Gets user input
         if user_in == -1: # Input comes from pipe/file and is closed
-            raise IOError
+            raise OSError("Failed to read from input")
         ## DEBUG KEYS - enable these lines to see curses key codes
         # self.screen.addstr(2, 2, str(user_in), curses.A_NORMAL)
         # self.screen.refresh()
@@ -332,7 +315,7 @@ class CursedMenu(object):
             entry_txt = self.format_garden_entry(entry)
             try:
                 result = bool(re.search(pattern, entry_txt))
-            except Exception as e:
+            except re.PatternError:
                 # In case of invalid regex, don't match anything
                 result = False
             return result
@@ -366,16 +349,15 @@ class CursedMenu(object):
             index_max = min(len(plant_table), index + entries_per_page)
             plants = plant_table[index:index_max]
             page = [self.format_garden_entry(entry) for entry in plants]
-            self.screen_lock.acquire()
-            self.draw_info_text(page)
-            # Multiple pages, paginate and require keypress
-            page_text = "(%d-%d/%d) | sp/next | bksp/prev | s <col #>/sort | f/filter | q/quit" % (index, index_max, len(plant_table))
-            self.screen.addstr(self.maxy-2, 2, page_text)
-            self.screen.refresh()
-            self.screen_lock.release()
+            with self.screen_lock:
+                self.draw_info_text(page)
+                # Multiple pages, paginate and require keypress
+                page_text = "(%d-%d/%d) | sp/next | bksp/prev | s <col #>/sort | f/filter | q/quit" % (index, index_max, len(plant_table))
+                self.screen.addstr(self.maxy-2, 2, page_text)
+                self.screen.refresh()
             c = self.screen.getch()
             if c == -1: # Input comes from pipe/file and is closed
-                raise IOError
+                raise OSError("Failed to read from input")
             self.infotoggle = 0
 
             # Quit
@@ -399,7 +381,7 @@ class CursedMenu(object):
             elif c == ord("s"):
                 c = self.screen.getch()
                 if c == -1: # Input comes from pipe/file and is closed
-                    raise IOError
+                    raise OSError("Failed to read from input")
                 column = -1
                 if c < 255 and chr(c) in sort_keys:
                     column = sort_keys.index(chr(c))
@@ -592,28 +574,26 @@ class CursedMenu(object):
 
     def clear_info_pane(self):
         # Clears bottom part of screen
-        self.screen_lock.acquire()
-        clear_bar = " " * (self.maxx - 3)
-        this_y = 14
-        while this_y < self.maxy:
-            self.screen.addstr(this_y, 2, clear_bar, curses.A_NORMAL)
-            this_y += 1
-        self.screen.refresh()
-        self.screen_lock.release()
+        with self.screen_lock:
+            clear_bar = " " * (self.maxx - 3)
+            this_y = 14
+            while this_y < self.maxy:
+                self.screen.addstr(this_y, 2, clear_bar, curses.A_NORMAL)
+                this_y += 1
+            self.screen.refresh()
 
     def draw_info_text(self, info_text, y_offset = 0):
         # print lines of text to info pane at bottom of screen
-        self.screen_lock.acquire()
-        if type(info_text) is str:
-            info_text = info_text.splitlines()
-        for y, line in enumerate(info_text, 2):
-            this_y = y+12 + y_offset
-            if len(line) > self.maxx - 3:
-                line = line[:self.maxx-3]
-            if this_y < self.maxy:
-                self.screen.addstr(this_y, 2, line, curses.A_NORMAL)
-        self.screen.refresh()
-        self.screen_lock.release()
+        with self.screen_lock:
+            if type(info_text) is str:
+                info_text = info_text.splitlines()
+            for y, line in enumerate(info_text, 2):
+                this_y = y+12 + y_offset
+                if len(line) > self.maxx - 3:
+                    line = line[:self.maxx-3]
+                if this_y < self.maxy:
+                    self.screen.addstr(this_y, 2, line, curses.A_NORMAL)
+            self.screen.refresh()
 
     def harvest_confirmation(self):
         self.clear_info_pane()
@@ -626,12 +606,9 @@ class CursedMenu(object):
                 harvest_text += "Your next plant will grow at a speed of: {:.1f}x\n".format(1 + (0.2 * self.plant.generation))
         harvest_text += "If you harvest your plant you'll start over from a seed.\nContinue? (Y/n)"
         self.draw_info_text(harvest_text)
-        try:
-            user_in = self.screen.getch() # Gets user input
-        except Exception as e:
-            self.__exit__()
+        user_in = self.screen.getch() # Gets user input
         if user_in == -1: # Input comes from pipe/file and is closed
-            raise IOError
+            raise OSError("Failed to read from input")
 
         if user_in in [ord('Y'), ord('y'), 10]:
             self.plant.start_over()
@@ -693,27 +670,26 @@ class CursedMenu(object):
         while user_input != 10:
             user_input = self.screen.getch()
             if user_input == -1: # Input comes from pipe/file and is closed
-                raise IOError
-            self.screen_lock.acquire()
-            # osx and unix backspace chars...
-            if user_input == 127 or user_input == 263:
-                if len(user_string) > 0:
-                    user_string = user_string[:-1]
-                    if completer:
-                        completer.update_input(user_string)
+                raise OSError("Failed to read from input")
+            with self.screen_lock:
+                # osx and unix backspace chars...
+                if user_input == 127 or user_input == 263:
+                    if len(user_string) > 0:
+                        user_string = user_string[:-1]
+                        if completer:
+                            completer.update_input(user_string)
+                        self.screen.addstr(ypos, xpos, " " * (self.maxx-xpos-1))
+                elif user_input in [ord('\t'), curses.KEY_BTAB] and completer:
+                    direction = 1 if user_input == ord('\t') else -1
+                    user_string = completer.complete(direction)
                     self.screen.addstr(ypos, xpos, " " * (self.maxx-xpos-1))
-            elif user_input in [ord('\t'), curses.KEY_BTAB] and completer:
-                direction = 1 if user_input == ord('\t') else -1
-                user_string = completer.complete(direction)
-                self.screen.addstr(ypos, xpos, " " * (self.maxx-xpos-1))
-            elif user_input < 256 and user_input != 10:
-                if filterfunc(chr(user_input)) or chr(user_input) == '_':
-                    user_string += chr(user_input)
-                    if completer:
-                        completer.update_input(user_string)
-            self.screen.addstr(ypos, xpos, str(user_string))
-            self.screen.refresh()
-            self.screen_lock.release()
+                elif user_input < 256 and user_input != 10:
+                    if filterfunc(chr(user_input)) or chr(user_input) == '_':
+                        user_string += chr(user_input)
+                        if completer:
+                            completer.update_input(user_string)
+                self.screen.addstr(ypos, xpos, str(user_string))
+                self.screen.refresh()
         return user_string
 
     def visit_handler(self):
@@ -807,46 +783,31 @@ class CursedMenu(object):
 
     def handle_request(self, request):
         # Menu options call functions here
-        if request == None: return
-        if request == "harvest":
-            self.harvest_confirmation()
-        if request == "water":
-            self.plant.water()
-        if request == "look":
-            try:
+        match request:
+            case None:
+                return
+            case "harvest":
+                self.harvest_confirmation()
+            case "water":
+                self.plant.water()
+            case "look":
                 self.draw_plant_description(self.plant)
-            except Exception as exception:
-                self.screen.refresh()
-                # traceback.print_exc()
-        if request == "instructions":
-            try:
+            case "instructions":
                 self.draw_instructions()
-            except Exception as exception:
-                self.screen.refresh()
-                # traceback.print_exc()
-        if request == "visit":
-            try:
+            case "visit":
                 self.visit_handler()
-            except Exception as exception:
-                self.screen.refresh()
-                # traceback.print_exc()
-        if request == "garden":
-            try:
+            case "garden":
                 self.draw_garden()
-            except Exception as exception:
-                self.screen.refresh()
-                # traceback.print_exc()
 
-    def __exit__(self):
-        self.exit = True
-        cleanup()
 
-def cleanup():
-    try:
-        curses.curs_set(2)
-    except curses.error:
-        # cursor not supported; just ignore
-        pass
-    curses.endwin()
-    os.system('clear')
+def menu(stdscrn: curses.window, *, this_plant, this_data):
+    menu = CursedMenu(stdscrn, this_plant=this_plant, this_data=this_data)
+    menu.show(
+        ["water", "look", "garden", "visit", "instructions"],
+        title=" botany ",
+        subtitle="options",
+    )
 
+
+def main(this_plant: Plant, this_data: "DataManager"):
+    return curses.wrapper(menu, this_plant=this_plant, this_data=this_data)
